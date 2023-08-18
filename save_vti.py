@@ -1,5 +1,6 @@
 import vtk
 
+
 def save_vti(image_data, output_filename):
     # Save the vtkImageData structure to a .vti file
     writer = vtk.vtkXMLImageDataWriter()

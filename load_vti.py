@@ -6,4 +6,4 @@ def load_vti(filename):
     reader = vtk.vtkXMLImageDataReader()
     reader.SetFileName(filename)
     reader.Update()
-    return reader.GetOutput()
+    return reader
