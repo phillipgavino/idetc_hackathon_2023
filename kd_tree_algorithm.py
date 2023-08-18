@@ -5,10 +5,12 @@ import numpy as np
 from vtk.util.numpy_support import numpy_to_vtk
 import time
 from scipy.spatial import KDTree
-from save_vti import *
+from save_vti import save_vti
+from vti_to_numpy import vti_to_numpy
+from rescale_microstructure import rescale_microstructure
 
 
-def kd_tree(voxel_grid, micro_structure):
+def kd_tree(voxel_grid, spin_array):
     """
     Maps a given voxel grid to a randomized numpy array using KDTree.
 
@@ -21,34 +23,45 @@ def kd_tree(voxel_grid, micro_structure):
     """
 
     print(voxel_grid.shape)
-    random_array_shape = voxel_grid.shape
 
     # Create a randomized numpy array
-    random_array = np.random.randint(0, 1001, random_array_shape)
-    print(random_array)
-    random_array = random_array.astype(float)
+
+    spin_array = spin_array.astype(float)
 
     # Ensure the voxel grid and random array are of the same shape
-    if voxel_grid.shape != random_array.shape:
-        raise ValueError("Voxel grid and random array shapes do not match!")
+    # if voxel_grid.shape != spin_array.shape:
+    #     raise ValueError("Voxel grid and random array shapes do not match!")
 
     # Create KDTree for the random array
-    indices = np.array(np.where(np.ones_like(random_array))).T
-    print(indices)
-    df = pd.DataFrame(indices)
-    df.to_csv("temp.csv", index=False)
+    indices = np.array(np.where(np.ones_like(spin_array))).T
+
+    # df = pd.DataFrame(indices)
+    # df.to_csv("temp.csv", index=False)
     tree = KDTree(indices)
 
     # Get all the indices of the voxel_grid where voxel value is greater than 0
     voxel_indices = np.array(np.where(voxel_grid.matrix > 0)).T
 
+    print(voxel_indices)
+
     # Query the KDTree for all voxel indices at once
-    _, nearest_indices = tree.query(voxel_indices)
+    mapped_array = np.zeros_like(voxel_grid.matrix, dtype=float)
+    for i in range(len(voxel_indices)):
+        _, nearest_index = tree.query(voxel_indices[i])
+        print(nearest_index)
+        mapped_array[voxel_indices[i]] = spin_array[nearest_index]
+
+    #_, nearest_indices = tree.query(voxel_indices)
 
     # Create an array of zeros to map the values from random_array using the nearest_indices
-    mapped_array = np.zeros_like(random_array, dtype=random_array.dtype)
-    for voxel_idx, nearest_idx in zip(voxel_indices, nearest_indices):
-        mapped_array[tuple(voxel_idx)] = random_array[tuple(indices[nearest_idx])]
+    # mapped_array = np.zeros_like(voxel_grid.matrix, dtype=float)
+
+
+
+    #for voxel_idx, nearest_idx in zip(voxel_indices, nearest_indices):
+    #    mapped_array[tuple(voxel_idx)] = spin_array[tuple(indices[nearest_idx])]
+
+
 
     return mapped_array
 
@@ -133,13 +146,21 @@ def main():
     print(end - start)
     start = time.time()
 
-    mapped_array = kd_tree(voxels, [])
+    vti_filename = 'hackathon-dataset/seed-001-potts_3d.50.vti'
+    spin_array = vti_to_numpy(vti_filename)
+
+    bbox = mesh.bounds
+    bbox = [abs(bbox[1][0] - bbox[0][0]), abs(bbox[1][1] - bbox[0][1]), abs(bbox[1][2] - bbox[0][2])]
+    print(bbox)
+    spin_array, X, Y, Z = rescale_microstructure(spin_array, bbox, origin=[-100, -100, 0])
+
+    mapped_array = kd_tree(voxels, spin_array)
 
     image_data = voxel_to_vti(mapped_array)
 
     end = time.time()
     print(end - start)
-    save_vti(image_data, r"voxelized_stl\tube_3.vti")
+    save_vti(image_data, r"voxelized_stl\tube_4.vti")
 
 
 if __name__ == "__main__":
