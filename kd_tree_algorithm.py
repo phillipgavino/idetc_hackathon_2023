@@ -10,91 +10,47 @@ from vti_to_numpy import vti_to_numpy
 from rescale_microstructure import rescale_microstructure
 
 
-def kd_tree(voxel_grid, spin_array):
+def kd_tree_spin_mapping(spin_array, voxel_coords, micro_coords, shape):
     """
-    Maps a given voxel grid to a randomized numpy array using KDTree.
+    Map the spin values from `spin_array` to the `voxel_coords` using a KDTree for nearest-neighbor lookup.
 
     Parameters:
-    - voxel_grid: 3D numpy array representing the voxel grid.
-    - micro_structure: Not used in this function, but retained for consistency.
+    - spin_array (np.array): Array containing spin values.
+    - voxel_coords (np.array): 3D array of voxel coordinates.
+    - micro_coords (np.array): List of micro-structure coordinates.
+    - dims (tuple): Dimensions to reshape the final result.
 
     Returns:
-    - mapped_array: 3D numpy array with values from the randomized array mapped onto the voxel grid.
+    - voxel_spin (np.array): 3D array of spin values mapped to voxel coordinates.
     """
 
-    print(voxel_grid.shape)
+    # Convert spin_array to float and flatten it
+    spin_array = spin_array.astype(float).ravel()
 
-    # Create a randomized numpy array
+    # Create KDTree for efficient nearest-neighbor lookup
+    tree = KDTree(micro_coords)
 
-    spin_array = spin_array.astype(float)
+    # Find the filled voxel indices
+    filled_voxel_indices = np.array(np.where(voxel_coords > 0)).T
+    unique_vox_ind = np.unique(filled_voxel_indices[:, 0])
 
-    # Ensure the voxel grid and random array are of the same shape
-    # if voxel_grid.shape != spin_array.shape:
-    #     raise ValueError("Voxel grid and random array shapes do not match!")
+    # Initialize an array to store mapped spin values
+    voxel_spin = np.zeros_like(spin_array)
 
-    # Create KDTree for the random array
-    indices = np.array(np.where(np.ones_like(spin_array))).T
+    # For each filled voxel, find the nearest micro coordinate and assign the corresponding spin value
+    for idx, voxel_index in enumerate(unique_vox_ind):
 
-    # df = pd.DataFrame(indices)
-    # df.to_csv("temp.csv", index=False)
-    tree = KDTree(indices)
+        voxel_coordinate = voxel_coords[voxel_index]
 
-    # Get all the indices of the voxel_grid where voxel value is greater than 0
-    voxel_indices = np.array(np.where(voxel_grid.matrix > 0)).T
+        _, ind = tree.query(voxel_coordinate)
 
-    print(voxel_indices)
+        voxel_spin[voxel_index] = spin_array[ind]
 
-    # Query the KDTree for all voxel indices at once
-    mapped_array = np.zeros_like(voxel_grid.matrix, dtype=float)
-    for i in range(len(voxel_indices)):
-        _, nearest_index = tree.query(voxel_indices[i])
-        print(nearest_index)
-        mapped_array[voxel_indices[i]] = spin_array[nearest_index]
+    # Reshape the result to the given dimensions
+    voxel_spin = voxel_spin.reshape(shape)
 
-    #_, nearest_indices = tree.query(voxel_indices)
+    return voxel_spin
 
-    # Create an array of zeros to map the values from random_array using the nearest_indices
-    # mapped_array = np.zeros_like(voxel_grid.matrix, dtype=float)
-
-
-
-    #for voxel_idx, nearest_idx in zip(voxel_indices, nearest_indices):
-    #    mapped_array[tuple(voxel_idx)] = spin_array[tuple(indices[nearest_idx])]
-
-
-
-    return mapped_array
-
-
-# def voxel_to_vti(input_filename, output_filename):
-#
-#     # Load the mesh
-#     mesh = trimesh.load_mesh(input_filename)
-#
-#     # Voxelization of the mesh
-#     voxel = mesh.voxelized(0.01)
-#     voxel_matrix = voxel.matrix
-#     """
-#     Converts a 3D voxel matrix to a .vti file.
-#
-#     Parameters:
-#     - voxel_matrix: 3D numpy array.
-#     - filename: Name of the file to save to (should end with .vti).
-#     """
-#
-#     # Convert the numpy array to a VTK array
-#     vtk_data = numpy_to_vtk(num_array=voxel_matrix.ravel(order='F'), deep=True, array_type=vtk.VTK_INT)
-#
-#     # Create an ImageData object and assign the vtk array to it
-#     image_data = vtk.vtkImageData()
-#     image_data.SetDimensions(voxel_matrix.shape)
-#     image_data.GetPointData().SetScalars(vtk_data)
-#
-#     # Write the ImageData object to a .vti file
-#     writer = vtk.vtkXMLImageDataWriter()
-#     writer.SetFileName(output_filename)
-#     writer.SetInputData(image_data)
-#     writer.Write()
 
 def voxelize_stl(filename, voxel_size):
     """
@@ -112,9 +68,31 @@ def voxelize_stl(filename, voxel_size):
 
     # Voxelize the mesh
     voxel_grid = mesh.voxelized(pitch=voxel_size)
+
     voxel_grid = voxel_grid.fill()
 
-    return voxel_grid, mesh
+    points = voxel_grid.points / 0.001
+
+    min_points = np.min(points, axis=0)
+    trans_points = points - min_points
+
+    filled_voxel_indices = np.array(np.where(voxel_grid.matrix > 0)).T
+
+    x_matrix = np.zeros(voxel_grid.matrix.shape)
+    y_matrix = np.zeros(voxel_grid.matrix.shape)
+    z_matrix = np.zeros(voxel_grid.matrix.shape)
+
+    for idx, voxel_index in enumerate(filled_voxel_indices):
+        x_matrix[tuple(voxel_index)] = trans_points[idx][0]
+        y_matrix[tuple(voxel_index)] = trans_points[idx][1]
+        z_matrix[tuple(voxel_index)] = trans_points[idx][2]
+
+    x_matrix = x_matrix.ravel()
+    y_matrix = y_matrix.ravel()
+    z_matrix = z_matrix.ravel()
+    filled_voxel_matrix = np.column_stack((x_matrix, y_matrix, z_matrix))
+
+    return filled_voxel_matrix, voxel_grid.shape
 
 
 def voxel_to_vti(voxels):
@@ -136,86 +114,43 @@ def voxel_to_vti(voxels):
 
 
 def main():
-    # Example usage:
-    filename = "cad/tube.stl"
-    voxel_size = 0.01  # adjust as needed
+    filename = "cad/cube.stl"
+    voxel_size = 0.01  # 10 microns
+
     start = time.time()
-    voxels, mesh = voxelize_stl(filename, voxel_size)
-    # filled_voxels = fill_interior_voxels(voxels, mesh)
-    end = time.time()
-    print(end - start)
-    start = time.time()
+
+    voxel_coords, bbox = voxelize_stl(filename, voxel_size)
+
+    print("Voxelize Time:", time.time() - start)
+
+    bbox = np.array(bbox) * voxel_size
 
     vti_filename = 'hackathon-dataset/seed-001-potts_3d.50.vti'
+
+    start = time.time()
+
     spin_array = vti_to_numpy(vti_filename)
+    spin_array, X, Y, Z = rescale_microstructure(spin_array, bbox)
 
-    bbox = mesh.bounds
-    bbox = [abs(bbox[1][0] - bbox[0][0]), abs(bbox[1][1] - bbox[0][1]), abs(bbox[1][2] - bbox[0][2])]
-    print(bbox)
-    spin_array, X, Y, Z = rescale_microstructure(spin_array, bbox, origin=[-100, -100, 0])
+    print("Rescale Microstructure:", time.time() - start)
 
-    mapped_array = kd_tree(voxels, spin_array)
+    X = X.ravel()
+    Y = Y.ravel()
+    Z = Z.ravel()
+    micro_coords = np.column_stack((X, Y, Z))
+
+    shape = (bbox / voxel_size).astype(int)
+
+    start = time.time()
+
+    mapped_array = kd_tree_spin_mapping(spin_array, voxel_coords, micro_coords, shape)
+
+    print("Mapping Time:", time.time() - start)
 
     image_data = voxel_to_vti(mapped_array)
 
-    end = time.time()
-    print(end - start)
-    save_vti(image_data, r"voxelized_stl\tube_4.vti")
+    save_vti(image_data, r"voxelized_stl\cube.vti")
 
 
 if __name__ == "__main__":
     main()
-
-# def main():
-#     # Example usage:
-#
-#     filename = r"cad\tube.stl"
-#     voxel_size = 0.01  # 10 micrometers
-#
-#     dims = (100, 100, 100)
-#
-#     voxel_to_vti(filename, "output_2.vti")
-
-
-# result_array = map_voxelized_stl_to_random_array(filename, voxel_size, dims)
-
-# start = time.time()
-# zero_array = np.zeros(dims, dtype=int)
-# random_array = np.random.randint(0, 1001, dims)
-#
-# indices = np.array(np.where(np.ones_like(random_array))).T
-#
-# tree = KDTree(indices)
-#
-# # Get all the indices of the zero_array in a vectorized manner
-# all_indices = np.array(list(np.ndindex(zero_array.shape)))
-#
-# # Query the KDTree for all indices at once
-# _, nearest_indices = tree.query(all_indices)
-#
-# # Map the values from random_array to zero_array using the nearest_indices
-# for idx, nearest_idx in zip(all_indices, nearest_indices):
-#     zero_array[tuple(idx)] = random_array[tuple(indices[nearest_idx])]
-# #
-# print("Random Array:")
-# print(random_array)
-# print("\nMapped Zero Array:")
-# print(zero_array)
-# print(time.time() - start)
-
-# filename = "output_2.vti"
-# numpy_to_vtk_image(result_array, filename)
-
-# print(voxels)
-
-# end = time.time()
-# print(end - start)
-# start = time.time()
-# image_data = voxel_to_vti(voxels.matrix.astype(float))
-# end = time.time()
-# print(end - start)
-# save.save_vti(image_data, r"voxelized_stl\cube.vti")
-
-#
-# if __name__ == "__main__":
-#     main()

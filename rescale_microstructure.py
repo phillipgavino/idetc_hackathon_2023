@@ -4,7 +4,6 @@ from vti_to_numpy import vti_to_numpy
 
 def rescale_microstructure(spin_array, dims, origin=[0, 0, 0]):
     # Implicit assumption here is that all STL files will be larger than the microstrucure.
-
     max_rows = 100
 
     xdim = dims[0]
